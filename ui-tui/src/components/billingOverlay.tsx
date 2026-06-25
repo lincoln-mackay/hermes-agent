@@ -85,37 +85,25 @@ function OverviewScreen({ ctx, onClose, onPatch, s, t }: ScreenProps) {
   // do NOT preflight the scope here.
   const full = s.is_admin && s.cli_billing_enabled
 
-  // No card on file → a charge can't succeed. Don't offer charge/auto-reload
-  // actions (they'd 403 no_payment_method); route to the portal to add a REUSABLE
-  // card, then the user returns to a refreshed overview. This is a half-done state.
-  const needsCard = full && !s.card
-
   const note = !s.is_admin
     ? 'Billing actions need an org admin/owner.'
     : !s.cli_billing_enabled
-      ? 'Terminal billing is off for this org — enable it on the portal.'
-      : needsCard
-        ? 'No card on file — add one on the portal to charge from the terminal.'
-        : null
+      ? 'Terminal billing is off for this org — manage it on the portal.'
+      : null
 
-  // Add funds first, then settings, then the scopeless browser handoff. Dollars,
-  // never "credits". No "Enable terminal billing" item — see the note above.
-  // No card → collapse to the single add-card portal action (charge actions hidden).
-  // With a card, "Add funds" charges in-terminal against the org's portal-saved
-  // card (server-held via POST /charge — no card ref leaves the client).
-  const items = needsCard
-    ? ['Add a card on the portal', 'Cancel']
-    : full
-      ? ['Add funds', 'Auto-reload', 'Monthly limit', 'Manage on portal', 'Cancel']
-      : ['Manage on portal', 'Cancel']
+  // Always show the full billing menu for an admin/billing-on org — a missing
+  // card does NOT mean nothing can be done (the org may already have balance,
+  // auto-reload, a limit). The card only matters at CHARGE time: "Add funds"
+  // attempts the charge and, if there's no card (no_payment_method), the buy
+  // flow hands off to the portal to top up / manage billing there.
+  const items = full
+    ? ['Add funds', 'Auto-reload', 'Monthly limit', 'Manage on portal', 'Cancel']
+    : ['Manage on portal', 'Cancel']
 
   const [sel, setSel] = useState(0)
 
   const choose = (i: number) => {
-    // Only a card-on-file admin/billing-on org (full && !needsCard) gets the
-    // buy/auto-reload/limit routing. Every other menu (needsCard, or not-full)
-    // exposes a single portal-or-close action at index 0.
-    if (full && !needsCard) {
+    if (full) {
       if (i === 0) {
         onPatch({ screen: 'buy' })
       } else if (i === 1) {
@@ -638,7 +626,7 @@ function AutoReloadScreen({ ctx, onClose, onPatch, s, t }: ScreenProps) {
 
   const turnOn = () => {
     if (noCard) {
-      ctx.sys('🔴 No saved card — set one up on the portal first.')
+      ctx.sys('🔴 No saved card — manage billing on the portal.')
 
       if (s.portal_url) {
         ctx.openPortal(s.portal_url)

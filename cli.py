@@ -9274,32 +9274,10 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             self._billing_portal_hint(state, reason="Enable it on the portal to add funds here.")
             return
 
-        # No card on file → a charge can't succeed. Don't offer charge/auto-reload
-        # actions (they'd 403 no_payment_method or punt). Route to the portal to add
-        # a REUSABLE card, then the user returns to a refreshed overview. This is a
-        # half-done state — NOT a success.
-        if state.card is None:
-            _cprint(
-                f"  {_d('No card on file — add one on the portal to charge from the terminal.')}"
-            )
-            if not getattr(self, "_app", None):
-                self._billing_portal_hint(state)
-                return
-            add_card_choices = [
-                ("portal", "Add a card on the portal", "opens the billing page to save a reusable card"),
-                ("cancel", "Cancel", "do nothing"),
-            ]
-            raw = self._prompt_text_input_modal(
-                title="Add a card to continue",
-                detail="No saved card yet. Add one on the portal, then re-run /topup to add funds.",
-                choices=add_card_choices,
-            )
-            choice = self._normalize_slash_confirm_choice(raw, add_card_choices)
-            if choice == "portal":
-                self._billing_open_portal(state)
-                print()
-                _cprint(f"  {_d('Added a card? Re-run /topup to add funds.')}")
-            return
+        # A missing card does NOT gate the whole overview — the org may already have
+        # balance, auto-reload, or a limit to view/manage. The card only matters at
+        # CHARGE time: "Add funds" -> _billing_buy_flow, which detects no card and
+        # hands off to the portal there. So always show the full menu below.
 
         # Non-interactive (slash-worker / no live app): no modal, no sub-command
         # advertising — just the portal funnel (the URL is the affordance).
@@ -9399,13 +9377,11 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         if not self._billing_require_admin(state):
             return
 
-        # Card gate: no saved card → a charge would 403 no_payment_method. Route to
-        # the portal to add a reusable card instead of offering doomed presets.
-        if state.card is None:
-            print()
-            _cprint(f"  {_d('No card on file — add one on the portal first, then re-run /topup.')}")
-            self._billing_portal_hint(state)
-            return
+        # No card / scope preflight here — that's the rejected anti-pattern. We let
+        # the charge fly and react to whatever 403 the server returns: scope first
+        # (insufficient_scope → in-flight reauth), then card (no_payment_method →
+        # portal handoff via _billing_render_charge_error). Mirrors the server's gate
+        # order; the user only hits the flow they actually need.
 
         # Screen 3 — preset selection.
         if not getattr(self, "_app", None):
@@ -9600,8 +9576,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         elif isinstance(exc, BillingSessionRevoked) or code == "session_revoked":
             print("  🔴 Your session was logged out. Run `hermes portal` to log in again.")
         elif code == "no_payment_method":
-            print("  💳 No saved card for terminal charges yet. Set one up on the "
-                  "portal (one-time credit buys don't save a reusable card).")
+            print("  💳 No card on file — top up and manage billing on the portal.")
         elif code in ("cli_billing_disabled", "remote_spending_disabled") or \
                 getattr(exc, "code", None) == "remote_spending_disabled":
             print("  Terminal billing is off for this account — an admin must enable it on the portal.")
@@ -9681,10 +9656,10 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
         # Scope granted + org kill-switch on — but a charge still needs a card on
         # file. If there's none, this is a half-done state: say so and route to the
-        # portal to add a card, rather than a bare "✓ enabled" that reads as done.
+        # portal to top up / manage billing, rather than a bare "✓ enabled" that reads as done.
         if fresh.card is None:
             print("  ✓ Terminal billing enabled — but there's no card on file yet.")
-            _cprint(f"  {_d('Add a card on the portal, then re-run the action to continue.')}")
+            _cprint(f"  {_d('Top up and manage billing on the portal to continue.')}")
             self._billing_portal_hint(fresh)
             return
 
@@ -9752,7 +9727,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         if card:
             print(f"  Card on file: {card.masked}")
         else:
-            print("  No saved card — set one up on the portal first.")
+            print("  No saved card — manage billing on the portal.")
             self._billing_portal_hint(state)
             return
         if currently_on:
