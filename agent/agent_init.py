@@ -916,6 +916,12 @@ def init_agent(
                             explicit_api_key=_fb_explicit_key,
                         )
                         if _fb_client is not None:
+                            # Snapshot the primary (original) model/provider before swap
+                            # so the UI can show "Fallback: X (primary: Y)"
+                            if not getattr(agent, "_primary_model", ""):
+                                agent._primary_model = model
+                            if not getattr(agent, "_primary_provider", ""):
+                                agent._primary_provider = provider
                             agent.provider = _fb["provider"]
                             agent.model = _fb_model or _fb["model"]
                             agent._fallback_activated = True
