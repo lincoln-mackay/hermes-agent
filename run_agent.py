@@ -5838,14 +5838,15 @@ class AIAgent:
         Returns:
             (compressed_messages, new_system_prompt, compression_stats) tuple
             where compression_stats is a dict with before_tokens, after_tokens,
-            before_messages, after_messages (or None if compression didn't run).
+            before_messages, after_messages (or None if compression didn't run
+            or token estimate was unavailable).
         """
         _pre_msg_count = len(messages)
-        _before_tokens = approx_tokens or 0
+        _before_tokens = approx_tokens  # Keep None if unknown
         logger.info(
             "context compression started: session=%s messages=%d tokens=~%s model=%s",
             self.session_id or "none", _pre_msg_count,
-            f"{approx_tokens:,}" if approx_tokens else "unknown", self.model,
+            f"{approx_tokens:,}" if approx_tokens is not None else "unknown", self.model,
         )
         # Pre-compression memory flush: let the model save memories before they're lost
         self.flush_memories(messages, min_turns=0)
@@ -5928,12 +5929,15 @@ class AIAgent:
             self.session_id or "none", _pre_msg_count, len(compressed),
             f"{_compressed_est:,}",
         )
-        _stats = {
-            "before_tokens": _before_tokens,
-            "after_tokens": _compressed_est,
-            "before_messages": _pre_msg_count,
-            "after_messages": len(compressed),
-        }
+        if _before_tokens is not None and _before_tokens > 0:
+            _stats = {
+                "before_tokens": _before_tokens,
+                "after_tokens": _compressed_est,
+                "before_messages": _pre_msg_count,
+                "after_messages": len(compressed),
+            }
+        else:
+            _stats = None
         return compressed, new_system_prompt, _stats
 
     def _execute_tool_calls(self, assistant_message, messages: list, effective_task_id: str, api_call_count: int = 0) -> None:
